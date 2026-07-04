@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GDFC — Graceful Degradation Flight Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #090d16;
+    --panel: #121a2b;
+    --panel-2: #0d1424;
+    --border: #212b42;
+    --text: #e7ecf6;
+    --text-dim: #8892a8;
+    --cyan: #4cc9f0;
+    --amber: #ffb020;
+    --red: #ff5468;
+    --green: #23e0a6;
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --font-body: 'Inter', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--font-body);}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px;}
+
+  /* header */
+  .top{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:18px;margin-bottom:22px;}
+  .eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;color:var(--cyan);text-transform:uppercase;margin-bottom:8px;}
+  h1{font-family:var(--font-display);font-size:30px;font-weight:700;margin:0 0 6px;letter-spacing:-.01em;}
+  .sub{color:var(--text-dim);font-size:14px;max-width:620px;line-height:1.5;}
+  .badge-row{display:flex;gap:8px;align-items:center;}
+  .modebadge{font-family:var(--font-mono);font-size:12px;padding:8px 14px;border-radius:999px;border:1px solid var(--border);background:var(--panel);display:flex;align-items:center;gap:8px;white-space:nowrap;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);transition:all .3s;}
+  .modebadge.fault .dot{background:var(--amber);box-shadow:0 0 8px var(--amber);}
+  .modebadge.hold .dot{background:var(--red);box-shadow:0 0 8px var(--red);}
+  .modebadge.recover .dot{background:var(--cyan);box-shadow:0 0 8px var(--cyan);}
+
+  /* grid */
+  .grid{display:grid;grid-template-columns:1.15fr 1fr;gap:18px;}
+  @media (max-width:900px){.grid{grid-template-columns:1fr;}}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px 20px;}
+  .panel h2{font-family:var(--font-display);font-size:14px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-dim);margin:0 0 14px;font-weight:600;}
+
+  /* PFD */
+  .pfd{position:relative;display:flex;gap:14px;align-items:stretch;}
+  .horizon-box{position:relative;width:260px;height:260px;border-radius:50%;overflow:hidden;border:3px solid #2a3450;flex-shrink:0;box-shadow:inset 0 0 30px rgba(0,0,0,.5);}
+  .horizon{position:absolute;left:-60px;top:-60px;width:380px;height:760px;transition:transform .9s cubic-bezier(.4,0,.2,1);}
+  .sky{position:absolute;top:0;left:0;width:100%;height:50%;background:linear-gradient(#1a5cc4,#3d8bdb);}
+  .ground{position:absolute;bottom:0;left:0;width:100%;height:50%;background:linear-gradient(#5a3b1f,#7a5230);}
+  .horizonline{position:absolute;top:calc(50% - 1px);left:0;width:100%;height:2px;background:#fff;opacity:.85;}
+  .pitchmarks{position:absolute;top:0;left:50%;transform:translateX(-50%);width:2px;height:100%;}
+  .center-mark{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:100px;z-index:5;pointer-events:none;}
+  .center-mark svg{width:100%;filter:drop-shadow(0 0 2px #000);}
+  .roll-ring{position:absolute;inset:0;border-radius:50%;pointer-events:none;}
+  .tapes{display:flex;flex-direction:column;justify-content:space-between;gap:10px;flex:1;}
+  .tape{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;position:relative;overflow:hidden;}
+  .tape .label{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);letter-spacing:.08em;text-transform:uppercase;}
+  .tape .value{font-family:var(--font-mono);font-size:26px;font-weight:600;margin-top:2px;transition:color .3s;}
+  .tape.glitch .value{color:var(--amber);}
+  .tape .flag{position:absolute;top:8px;right:10px;font-family:var(--font-mono);font-size:10px;color:var(--red);opacity:0;transition:opacity .2s;}
+  .tape.flag-on .flag{opacity:1;}
+
+  /* controls */
+  .controls{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;}
+  button{font-family:var(--font-mono);font-size:12.5px;letter-spacing:.03em;padding:11px 16px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text);cursor:pointer;transition:all .15s;}
+  button:hover{border-color:var(--cyan);color:var(--cyan);}
+  button:disabled{opacity:.35;cursor:not-allowed;}
+  button:disabled:hover{border-color:var(--border);color:var(--text);}
+  button.primary{background:linear-gradient(180deg,#1c2740,#141d33);border-color:var(--amber);color:var(--amber);}
+  button.primary:hover{background:linear-gradient(180deg,#25324f,#182238);}
+
+  /* GDFC layers */
+  .layer{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);}
+  .layer:last-child{border-bottom:none;}
+  .layer .num{font-family:var(--font-mono);font-size:11px;color:var(--text-dim);width:20px;flex-shrink:0;padding-top:2px;}
+  .layer .body{flex:1;}
+  .layer .name{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px;}
+  .layer .desc{font-size:12px;color:var(--text-dim);margin-top:3px;line-height:1.45;}
+  .status-pill{font-family:var(--font-mono);font-size:9.5px;padding:3px 8px;border-radius:999px;background:var(--panel-2);color:var(--text-dim);border:1px solid var(--border);text-transform:uppercase;letter-spacing:.05em;}
+  .status-pill.active{color:var(--bg);background:var(--cyan);border-color:var(--cyan);}
+  .status-pill.hold{color:var(--bg);background:var(--red);border-color:var(--red);}
+  .status-pill.done{color:var(--bg);background:var(--green);border-color:var(--green);}
+
+  /* cockpit alert panel / decluttering demo */
+  .alertpanel{position:relative;min-height:190px;}
+  .alert-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .alert-item{background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-family:var(--font-mono);font-size:10.5px;color:var(--red);display:flex;align-items:center;gap:6px;transition:opacity .5s, transform .5s;}
+  .alert-item::before{content:'▲';font-size:9px;}
+  .single-recovery{display:none;text-align:center;padding:14px 10px;}
+  .single-recovery.show{display:block;}
+  .ring-wrap{position:relative;width:96px;height:96px;margin:0 auto 10px;}
+  .ring-wrap svg{transform:rotate(-90deg);}
+  .ring-bg{fill:none;stroke:var(--border);stroke-width:6;}
+  .ring-fg{fill:none;stroke:var(--cyan);stroke-width:6;stroke-linecap:round;stroke-dasharray:264;stroke-dashoffset:264;}
+  .ring-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:24px;font-weight:600;}
+  .single-recovery .instr{font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px;}
+  .single-recovery .sub2{font-size:11.5px;color:var(--text-dim);}
+
+  /* log */
+  .log{background:#05070d;border:1px solid var(--border);border-radius:8px;padding:10px 12px;height:140px;overflow-y:auto;font-family:var(--font-mono);font-size:11px;line-height:1.7;}
+  .log div{color:var(--text-dim);}
+  .log div.hl{color:var(--amber);}
+  .log div.crit{color:var(--red);}
+  .log div.ok{color:var(--green);}
+  .log div span{color:#4a5674;margin-right:6px;}
+
+  /* bottom compare */
+  .compare{margin-top:18px;}
+  .bar-row{display:flex;align-items:center;gap:12px;margin:12px 0;}
+  .bar-row .lbl{width:170px;font-size:12px;color:var(--text-dim);flex-shrink:0;}
+  .bar-track{flex:1;height:10px;background:var(--panel-2);border-radius:6px;overflow:hidden;border:1px solid var(--border);}
+  .bar-fill{height:100%;border-radius:6px;transition:width 1s cubic-bezier(.4,0,.2,1);}
+  .bar-fill.baseline{background:linear-gradient(90deg,#7a3b3b,var(--red));}
+  .bar-fill.gdfc{background:linear-gradient(90deg,#1f8a76,var(--green));}
+  .bar-num{font-family:var(--font-mono);font-size:12px;width:70px;text-align:right;color:var(--text);}
+
+  .stackrow{display:flex;gap:8px;margin-top:6px;}
+  .stackrow .tag{font-family:var(--font-mono);font-size:10px;color:var(--text-dim);border:1px solid var(--border);padding:3px 8px;border-radius:999px;}
+
+  footer{margin-top:26px;text-align:center;font-family:var(--font-mono);font-size:10.5px;color:#3d4864;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div>
+      <div class="eyebrow">Software-Defined Aerospace Systems · Virtual PoC</div>
+      <h1>GDFC — Graceful Degradation Flight Control</h1>
+      <div class="sub">An edge-AI onboard safety layer that absorbs sensor failure before it becomes a startle event — stabilizing the aircraft locally while giving the pilot a single, structured recovery path.</div>
+    </div>
+    <div class="badge-row">
+      <div class="modebadge" id="modebadge"><div class="dot"></div><span id="modetext">NORMAL — AUTOPILOT ENGAGED</span></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT: PFD -->
+    <div class="panel">
+      <h2>Primary Flight Display — Simulated</h2>
+      <div class="pfd">
+        <div class="horizon-box">
+          <div class="horizon" id="horizon">
+            <div class="sky"></div>
+            <div class="ground"></div>
+            <div class="horizonline"></div>
+          </div>
+          <div class="center-mark">
+            <svg viewBox="0 0 100 20"><path d="M10 10 H40 M60 10 H90 M45 10 L50 16 L55 10" stroke="#ffcf3f" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="tapes">
+          <div class="tape" id="tape-air">
+            <div class="label">Airspeed (kt)</div>
+            <div class="value" id="val-air">248</div>
+            <div class="flag" id="flag-air">PITOT FAULT</div>
+          </div>
+          <div class="tape" id="tape-alt">
+            <div class="label">Altitude (ft)</div>
+            <div class="value" id="val-alt">34,000</div>
+            <div class="flag" id="flag-alt">DATA LOSS</div>
+          </div>
+          <div class="tape" id="tape-roll">
+            <div class="label">Bank / Pitch</div>
+            <div class="value" id="val-roll">0° / 0°</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="primary" id="btnFault">⚡ Inject Fault — Pitot Icing (Microburst)</button>
+        <button id="btnReset" disabled>↺ Reset Simulation</button>
+      </div>
+
+      <div class="compare" style="margin-top:22px;border-top:1px solid var(--border);padding-top:16px;">
+        <h2 style="margin-bottom:10px;">Illustrative Impact — Baseline vs GDFC-Assisted</h2>
+        <div class="bar-row">
+          <div class="lbl">Time to stable manual control</div>
+          <div class="bar-track"><div class="bar-fill baseline" style="width:88%"></div></div>
+          <div class="bar-num">~40s*</div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl"></div>
+          <div class="bar-track"><div class="bar-fill gdfc" style="width:28%"></div></div>
+          <div class="bar-num">~12s*</div>
+        </div>
+        <div class="bar-row" style="margin-top:16px;">
+          <div class="lbl">Simultaneous alarms shown</div>
+          <div class="bar-track"><div class="bar-fill baseline" style="width:95%"></div></div>
+          <div class="bar-num">Multi-alarm*</div>
+        </div>
+        <div class="bar-row">
+          <div class="lbl"></div>
+          <div class="bar-track"><div class="bar-fill gdfc" style="width:12%"></div></div>
+          <div class="bar-num">1 protocol*</div>
+        </div>
+        <div style="font-size:10.5px;color:#4a5674;margin-top:4px;">*Illustrative targets for demo purposes — to be validated against HIL test data during the hackathon, not measured flight data.</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: GDFC system -->
+    <div class="panel">
+      <h2>GDFC — Three Localized Layers</h2>
+
+      <div class="layer">
+        <div class="num">01</div>
+        <div class="body">
+          <div class="name">On-Edge Sensor Voting Logic <span class="status-pill" id="pill-1">idle</span></div>
+          <div class="desc">Local ML classifier cross-checks redundant sensor signals in real time. On anomaly (e.g. icing), it isolates the corrupted source using non-corrupted data — no cloud round-trip.</div>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="num">02</div>
+        <div class="body">
+          <div class="name">Graceful Flight Degradation <span class="status-pill" id="pill-2">idle</span></div>
+          <div class="desc">Instead of a full autopilot drop-off, the system enters Safe-Hold Mode — stabilizing wing-level trajectory and holding safe pitch envelopes while the pilot re-orients.</div>
+        </div>
+      </div>
+      <div class="layer">
+        <div class="num">03</div>
+        <div class="body">
+          <div class="name">UI De-cluttering &amp; Assistive Interface <span class="status-pill" id="pill-3">idle</span></div>
+          <div class="desc">Secondary error codes are stripped from the dashboard. A single high-visibility recovery protocol is shown, giving the pilot a ~15s buffer before resuming manual input.</div>
+        </div>
+      </div>
+
+      <div class="alertpanel" style="margin-top:14px;">
+        <div class="alert-grid" id="alertGrid">
+          <div class="alert-item">PITOT-STATIC FAIL</div>
+          <div class="alert-item">AIRSPEED DISAGREE</div>
+          <div class="alert-item">AP DISCONNECT</div>
+          <div class="alert-item">ALT DISAGREE</div>
+          <div class="alert-item">FD FAIL</div>
+          <div class="alert-item">STALL WARNING</div>
+        </div>
+        <div class="single-recovery" id="singleRecovery">
+          <div class="ring-wrap">
+            <svg width="96" height="96"><circle class="ring-bg" cx="48" cy="48" r="42"/><circle class="ring-fg" id="ringFg" cx="48" cy="48" r="42"/></svg>
+            <div class="ring-num" id="ringNum">15</div>
+          </div>
+          <div class="instr">Wings level. Hold heading.</div>
+          <div class="sub2">Safe-Hold active — resume manual input when ready</div>
+        </div>
+      </div>
+
+      <h2 style="margin-top:18px;">System / Black-Box Log</h2>
+      <div class="log" id="log">
+        <div><span>00:00:00.000</span>GDFC standby. Autopilot nominal. All sensor channels green.</div>
+      </div>
+
+      <div class="stackrow">
+        <span class="tag">Edge: Jetson Nano / Pi 5</span>
+        <span class="tag">AWS SageMaker → Greengrass</span>
+        <span class="tag">Emerson NI HIL / LabVIEW</span>
+      </div>
+    </div>
+  </div>
+
+  <footer>GDFC Virtual Proof of Concept — for hackathon demonstration purposes. Flight data and timings are simulated, not sourced from certified avionics.</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const modebadge = $('modebadge'), modetext = $('modetext');
+const btnFault = $('btnFault'), btnReset = $('btnReset');
+const horizon = $('horizon');
+const logEl = $('log');
+const pills = [$('pill-1'), $('pill-2'), $('pill-3')];
+const alertGrid = $('alertGrid'), singleRecovery = $('singleRecovery');
+const ringFg = $('ringFg'), ringNum = $('ringNum');
+const CIRC = 264;
+
+let running = false;
+let t0 = performance.now();
+
+function timestamp(){
+  const ms = performance.now() - t0;
+  const s = ms/1000;
+  const mm = String(Math.floor(s/60)).padStart(2,'0');
+  const ss = String(Math.floor(s%60)).padStart(2,'0');
+  const mmm = String(Math.floor(ms%1000)).padStart(3,'0');
+  return `00:${mm}:${ss}.${mmm}`;
+}
+function logLine(text, cls){
+  const d = document.createElement('div');
+  if(cls) d.className = cls;
+  d.innerHTML = `<span>${timestamp()}</span>${text}`;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function setMode(cls, text){
+  modebadge.className = 'modebadge ' + (cls||'');
+  modetext.textContent = text;
+}
+function setPill(i, cls, text){
+  pills[i].className = 'status-pill ' + (cls||'');
+  pills[i].textContent = text;
+}
+function wait(ms){ return new Promise(r=>setTimeout(r, ms)); }
+
+async function runSequence(){
+  running = true;
+  btnFault.disabled = true;
+  btnReset.disabled = true;
+  t0 = performance.now();
+
+  // Phase 0: fault occurs
+  setMode('fault', 'ANOMALY DETECTED — SENSOR CROSS-CHECK');
+  $('tape-air').classList.add('glitch');
+  $('flag-air').parentElement.classList.add('flag-on');
+  $('val-air').textContent = '—— ';
+  logLine('Pitot-tube icing detected during microburst penetration.', 'hl');
+  await wait(500);
+  logLine('Airspeed disagree: primary vs standby channel diverging.', 'hl');
+  await wait(600);
+
+  // Phase 1: sensor voting logic engages
+  setPill(0, 'active', 'active');
+  logLine('L1 On-Edge Sensor Voting: cross-checking redundant sensor signals on local edge processor.');
+  await wait(900);
+  logLine('L1: corrupted airspeed source isolated. Non-corrupted GPS-velocity substituted.', 'ok');
+  setPill(0, 'done', 'done');
+  await wait(500);
+
+  // Phase 2: graceful degradation
+  setPill(1, 'active', 'active');
+  setMode('hold', 'SAFE-HOLD MODE — STABILIZING');
+  horizon.style.transform = 'translate(4px, 10px) rotate(-2deg)';
+  $('val-roll').textContent = '-2° / +1°';
+  logLine('L2 Graceful Flight Degradation: autopilot NOT disconnected — entering Safe-Hold Mode.', 'crit');
+  await wait(700);
+  logLine('L2: wing-level trajectory locked. Pitch envelope constrained to safe band.');
+  await wait(700);
+  horizon.style.transform = 'translate(0px, 0px) rotate(0deg)';
+  $('val-roll').textContent = '0° / 0°';
+  $('val-air').textContent = '241';
+  $('tape-air').classList.remove('glitch');
+  logLine('L2: aircraft stabilized wings-level. No stall / CFIT trajectory.', 'ok');
+  setPill(1, 'done', 'done');
+  await wait(400);
+
+  // Phase 3: UI decluttering
+  setPill(2, 'active', 'active');
+  setMode('recover', 'RECOVERY BUFFER — PILOT RE-ORIENTING');
+  logLine('L3 UI De-cluttering: suppressing secondary alarms. Single recovery protocol shown to pilot.');
+  alertGrid.style.display = 'none';
+  singleRecovery.classList.add('show');
+  await wait(200);
+
+  // countdown ring 15s -> compress to 4.5s for demo pacing
+  let secs = 15;
+  ringNum.textContent = secs;
+  const totalDemoMs = 4500;
+  const steps = 15;
+  for(let i=1;i<=steps;i++){
+    await wait(totalDemoMs/steps);
+    secs -= 1;
+    ringNum.textContent = Math.max(secs,0);
+    const offset = CIRC - (CIRC * (i/steps));
+    ringFg.style.strokeDashoffset = offset;
+  }
+  logLine('L3: 15s cognitive buffer elapsed. Pilot resumes manual input on stabilized aircraft.', 'ok');
+  setPill(2, 'done', 'done');
+  await wait(400);
+
+  setMode('', 'NORMAL — MANUAL CONTROL RESTORED');
+  logLine('GDFC standing by. Flight parameters nominal.');
+  $('flag-air').parentElement.classList.remove('flag-on');
+  $('val-alt').textContent = '34,000';
+
+  running = false;
+  btnReset.disabled = false;
+}
+
+btnFault.addEventListener('click', () => { if(!running) runSequence(); });
+btnReset.addEventListener('click', () => {
+  location.reload();
+});
+</script>
+</body>
+</html>
